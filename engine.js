@@ -37,10 +37,22 @@ async function fetchWeather(force) {
   return S.weather;
 }
 function weatherAge() { const f = allLocations().map(l => S.weather?.byKey?.[locKey(l)]?.fetched).filter(Boolean); return f.length ? Math.round((Date.now() - Math.min(...f)) / 60000) : null; }
+// Searches the free Open-Meteo place list. South African places are listed first,
+// and "Hillcrest, Pretoria" style searches use the part after the comma to narrow it down.
 async function searchPlaces(q) {
-  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`);
+  const [name, ...rest] = q.split(',').map(x => x.trim());
+  const ALIAS = { pretoria: 'tshwane', durban: 'ethekwini', joburg: 'johannesburg', jhb: 'johannesburg', pta: 'tshwane', kzn: 'kwazulu', 'port elizabeth': 'nelson mandela', gqeberha: 'nelson mandela' };
+  let hint = rest.join(' ').toLowerCase(); for (const [k, v] of Object.entries(ALIAS)) if (hint.includes(k)) hint += ' ' + v;
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=100&language=en&format=json`);
   const j = await r.json();
-  return (j.results || []).map(p => ({ name: [p.name, p.admin1, p.country_code].filter(Boolean).join(', '), lat: +p.latitude.toFixed(3), lon: +p.longitude.toFixed(3) }));
+  let res = (j.results || []).map(p => ({
+    name: [p.name, p.admin2 && p.admin2 !== p.name ? p.admin2.replace(/ (Metropolitan|Local|District) Municipality$/, '') : null, p.admin1, p.country_code].filter(Boolean).join(', '),
+    lat: +p.latitude.toFixed(3), lon: +p.longitude.toFixed(3), za: p.country_code === 'ZA', pop: p.population || 0,
+    hay: [p.admin1, p.admin2, p.admin3, p.country].filter(Boolean).join(' ').toLowerCase(),
+  }));
+  if (hint) { const narrowed = res.filter(p => p.hay.includes(hint) || hint.split(' ').some(w => w.length > 2 && p.hay.includes(w))); if (narrowed.length) res = narrowed; }
+  res.sort((a, b) => (b.za - a.za) || (b.pop - a.pop));
+  return res.slice(0, 10).map(({ name, lat, lon }) => ({ name, lat, lon }));
 }
 function dayWeather(date) {
   const loc = locFor(dayType(date)), ov = S.wxOverride[date], f = loc ? S.weather?.byKey?.[locKey(loc)]?.days?.[date] : null;

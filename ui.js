@@ -331,7 +331,7 @@ function openLocPicker(field) {
   openSheet(`${sheetHead(title)}
     <p class="muted small">${field === 'location' ? 'Used for Saturdays and any day without its own location.' : 'Search for the suburb or town, e.g. Sandton or Centurion.'}</p>
     <div class="row"><button class="btn" data-act="geo">Use where I am now</button></div>
-    <div class="field"><input type="search" id="placeQ" placeholder="Search a suburb or town"></div><div id="placeRes"></div>`);
+    <div class="field"><input type="search" id="placeQ" placeholder="Search a suburb or town"><div class="hint">Add the city after a comma to narrow it down, e.g. "Hillcrest, Pretoria". Small suburbs aren't always listed, but the nearest town gives the same weather.</div></div><div id="placeRes"></div>`);
   setTimeout(() => $('#placeQ')?.focus(), 50);
 }
 async function setLocation(loc) { const field = S.locTarget || 'location'; S.settings[field] = loc; if (!S.settings.location) S.settings.location = loc; await saveSettings(); closeSheet(); try { await fetchWeather(true); toast('Weather loaded for ' + loc.name); } catch { toast('Couldn\'t load the weather. Check your connection.'); } render(); }
@@ -482,7 +482,7 @@ document.addEventListener('input', e => {
   clearTimeout(placeT); const q = e.target.value.trim();
   if (q.length < 3) { $('#placeRes').innerHTML = ''; return; }
   placeT = setTimeout(async () => {
-    try { const res = await searchPlaces(q); $('#placeRes').innerHTML = res.length ? `<div class="chips">${res.map(p => `<button class="chip" data-act="place" data-name="${esc(p.name)}" data-lat="${p.lat}" data-lon="${p.lon}">${esc(p.name)}</button>`).join('')}</div>` : '<p class="small muted">No matches.</p>'; }
+    try { const res = await searchPlaces(q); $('#placeRes').innerHTML = res.length ? `<div class="chips">${res.map(p => `<button class="chip" data-act="place" data-name="${esc(p.name)}" data-lat="${p.lat}" data-lon="${p.lon}">${esc(p.name)}</button>`).join('')}</div>` : '<p class="small muted">No matches. Try the nearest bigger area instead (e.g. Pretoria or Durban), or tap "Use where I am now" while you\'re there.</p>'; }
     catch { $('#placeRes').innerHTML = '<p class="small muted">Search needs an internet connection.</p>'; }
   }, 350);
 });
