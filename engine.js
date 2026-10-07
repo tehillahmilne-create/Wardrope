@@ -148,7 +148,11 @@ function colourScore(o, ctx) {
   for (const p of [o.bottom, o.shoes, o.bag, o.belt].filter(Boolean)) if (p.pm.status === 'out' && !p.pm.neutral) s -= 0.4;
   const vis = [o.layer, o.top, o.dress, o.jumpsuit, o.bottom, o.under, o.acc?.style === 'scarf' ? o.acc : null].filter(Boolean);
   const chrom = [];
-  for (const p of vis) { if (p.pm.neutral) continue; if (!chrom.some(c => dE2000(c, p.pm.lab) < 12)) chrom.push(p.pm.lab); }
+  for (const p of vis) for (const m of [p.pm, p.pm2]) { if (!m || m.neutral) continue; if (!chrom.some(c => dE2000(c, m.lab) < 12)) chrom.push(m.lab); }
+  // a print that contains a palette colour softens an off-palette main colour near the face
+  const base = o.dress || o.jumpsuit || o.top;
+  if (base && base.pm.status === 'out' && base.pm2?.status === 'in' && base.pattern !== 'plain') s += 0.8;
+  s += echoes(o).length * 1.0;
   if (chrom.length > 2) s -= (chrom.length - 2) * 2.5;
   for (let i = 0; i < chrom.length; i++) for (let j = i + 1; j < chrom.length; j++) {
     let dh = Math.abs(hueOf(chrom[i]) - hueOf(chrom[j])); if (dh > 180) dh = 360 - dh;
@@ -158,6 +162,51 @@ function colourScore(o, ctx) {
   if (o.top && o.bottom) { const dL = Math.abs(o.top.pm.L - o.bottom.pm.L); if (dL > 55) s -= 1.4; else if (dL < 35) s += 0.3; }
   if (ctx.mood.colour && face.some(([p, wt]) => !p.pm.neutral && p.pm.status !== 'out' && wt >= 0.7)) s += ctx.mood.colour;
   return s;
+}
+// a second colour in one piece repeated as the main colour of another piece ties the outfit together
+function echoes(o) {
+  const items = filled(o).map(([, p]) => p), out = [];
+  for (const p of items) {
+    if (!p.pm2) continue;
+    const q = items.find(x => x !== p && dE2000(x.pm.lab, p.pm2.lab) < 12);
+    if (q) out.push([p, q]);
+  }
+  return out;
+}
+function fitScore(o) {
+  let s = 0; const base = o.dress || o.jumpsuit || o.top;
+  if (o.top && o.bottom && o.top.fit && o.bottom.fit) {
+    if (isLoose(o.top.fit) && isLoose(o.bottom.fit)) s -= (o.top.fit === 'oversized' || o.bottom.fit === 'oversized') ? 3 : 1.8;
+    else if (isLoose(o.top.fit) !== isLoose(o.bottom.fit)) s += 0.6;
+  }
+  if (o.layer?.fit === 'oversized' && base && (base.fit === 'oversized' || (isLoose(base.fit) && (!o.bottom || isLoose(o.bottom.fit))))) s -= 1.2;
+  if (o.belt && base && isLoose(base.fit)) s += 0.5;
+  return s;
+}
+function fabricScore(o, ctx) {
+  let s = 0;
+  const cl = [o.under, o.top, o.bottom, o.dress, o.jumpsuit, o.layer].filter(p => p && p.fabric);
+  const has = (...fs) => cl.some(p => fs.includes(p.fabric));
+  const stmt = cl.filter(p => STATEMENT_FABRIC.includes(p.fabric)).length;
+  if (stmt > 1) s -= 1.5 * (stmt - 1);
+  if (has('sequin / sparkle') && ctx.type === 'office') s -= 2.5;
+  const den = cl.filter(p => p.fabric === 'denim');
+  if (den.length > 1) s -= dE2000(den[0].pm.lab, den[1].pm.lab) < 10 ? 1.2 : 0.2;
+  // texture contrasts count only what's clearly visible (not an under-layer)
+  const vis = [o.top, o.bottom, o.dress, o.jumpsuit, o.layer].filter(p => p && p.fabric), vhas = (...fs) => vis.some(p => fs.includes(p.fabric));
+  if (vhas('knit', 'wool') && vhas('silk / satin', 'chiffon / sheer')) s += 0.4;
+  if (vhas('denim') && vhas('silk / satin', 'lace', 'chiffon / sheer')) s += 0.4;
+  if (o.layer?.fabric === 'leather / faux leather' && (o.dress || has('silk / satin', 'chiffon / sheer'))) s += 0.5;
+  if (has('corduroy') && has('silk / satin', 'sequin / sparkle')) s -= 0.8;
+  if (has('linen') && has('velvet', 'sequin / sparkle')) s -= 1;
+  if (ctx.mood.target <= 1.2 && has('sequin / sparkle', 'velvet')) s -= 0.8;
+  if (o.shoes?.fabric === 'suede' && ctx.wx.wet) s -= 1.5;
+  return s;
+}
+function blockedHit(o) {
+  if (!S.blocked.length) return null;
+  const ids = new Set(filled(o).map(([, p]) => p.id));
+  return S.blocked.find(b => b.ids.every(id => ids.has(id))) || null;
 }
 function scoreOutfit(o, ctx) {
   const { mood, wx } = ctx; let s = 0;
@@ -200,6 +249,8 @@ function scoreOutfit(o, ctx) {
     if (st === 'hat') s += (hotish && ctx.type === 'free') ? 0.5 : -0.8;
     if (st === 'necklace' || st === 'earrings') s += mood.target >= 2.5 ? 0.6 : 0;
   }
+  s += fitScore(o) + fabricScore(o, ctx);
+  if (blockedHit(o)) s -= 60;
   // recency, week variety and a little randomness (Shuffle changes the seed)
   const rd = +S.settings.repeatDays || 0;
   for (const [slot, p] of filled(o)) {
@@ -269,6 +320,7 @@ function finishOutfit(o, ctx) {
   o.flags.noTake = needTake && !o.take.length;
   o.score = scoreOutfit(o, ctx) - (o.flags.noUnder ? 4 : 0) - (o.flags.noLayer ? 2 : 0);
   o.key = SLOTS.filter(k => o[k]).map(k => o[k].id).sort().join('|');
+  o.blocked = !!blockedHit(o);
   return o;
 }
 
@@ -299,7 +351,7 @@ function generateDay(date, extra = {}) {
     let bo = null, bs = -1e9;
     for (const [b] of ranked) {
       const o = complete(b, m, force);
-      if (keys.has(o.key)) continue;
+      if (keys.has(o.key) || o.blocked) continue;
       const overlap = mainPieces(o).filter(p => used.has(p.id) && p !== lock).length;
       const v = o.score - overlap * 6;
       if (v > bs) { bs = v; bo = o; }
@@ -379,6 +431,20 @@ function explain(o, ctx) {
     }
   }
   if (o.top && o.bottom && Math.abs(o.top.pm.L - o.bottom.pm.L) < 35) R.push('Soft contrast between top and bottom, which suits True Summer colouring.');
+  for (const [p, q] of echoes(o)) R.push(`The ${p.pm2.label} in the ${nm(p)} picks up the ${nm(q)}.`);
+  // fit
+  if (o.top && o.bottom && o.top.fit && o.bottom.fit && isLoose(o.top.fit) !== isLoose(o.bottom.fit))
+    R.push(`${isLoose(o.top.fit) ? 'Relaxed top balanced by a neater bottom' : 'Fitted top balances the fuller bottom'}: good proportions.`);
+  if (o.belt && base && isLoose(base.fit)) R.push(`The belt gives the ${base.style} some waist definition.`);
+  if (o.top && o.bottom && isLoose(o.top.fit) && isLoose(o.bottom.fit)) W.push('Both halves are loose: tuck the top in or add a belt to keep some shape.');
+  // fabric
+  const cl = [o.under, o.top, o.bottom, o.dress, o.jumpsuit, o.layer].filter(p => p && p.fabric), vis = cl.filter(p => p !== o.under), has = (...fs) => vis.some(p => fs.includes(p.fabric));
+  if (has('knit', 'wool') && has('silk / satin', 'chiffon / sheer')) R.push('Soft knit with something silky: a lovely texture contrast.');
+  else if (has('denim') && has('silk / satin', 'lace', 'chiffon / sheer')) R.push('Denim dressed up with a finer fabric.');
+  else if (o.layer?.fabric === 'leather / faux leather' && o.dress) R.push('The leather jacket gives the dress an edge.');
+  if (cl.filter(p => STATEMENT_FABRIC.includes(p.fabric)).length > 1) W.push('Two statement fabrics: consider swapping one for something plainer.');
+  const den = cl.filter(p => p.fabric === 'denim');
+  if (den.length > 1 && dE2000(den[0].pm.lab, den[1].pm.lab) < 10) W.push('Double denim in the same shade: choose different washes so they look intentional.');
   // rules
   const lenPiece = [o.dress, o.jumpsuit, o.bottom].find(p => p && hasLength(p));
   if (ctx.type === 'office' && lenPiece && lenPiece.length !== 'full') R.push(`${LENGTH_LABEL[lenPiece.length]} length keeps it office-appropriate.`);

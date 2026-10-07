@@ -34,6 +34,7 @@ function outfitCard(L, i, opts = {}) {
     ${o.take?.length ? `<div class="section-label">Take along</div><div class="extras">${o.take.map((p, ti) => tile(p, 'take', i, `data-ti="${ti}"`)).join('')}</div>` : ''}
     <ul class="reasons">${R.map(r => `<li>${esc(r)}</li>`).join('')}${W.map(r => `<li class="warn">${esc(r)}</li>`).join('')}</ul>
     <div class="actions">${opts.actions ?? `<button class="btn primary" data-act="wear" data-look="${i}">Wear this</button><button class="btn ghost" data-act="save" data-look="${i}">Save look</button>`}</div>
+    ${opts.actions == null ? `<div style="text-align:center;margin-top:6px"><button class="btn small ghost" style="border:0" data-act="nope" data-look="${i}">Not for me…</button></div>` : ''}
   </article>`;
 }
 
@@ -113,6 +114,9 @@ function itemDetail(id) {
   const kv = [
     ['Type', `${TYPE[it.type].label} · ${it.style}`],
     ['Colour', `<span class="row"><span class="swatch" style="width:20px;height:20px;border-radius:6px;background:${it.colour}"></span>${esc(it.pm.label)} <span class="tag ${STATUS_CLASS[it.pm.status]}">${STATUS_LABEL[it.pm.status]}</span></span>`],
+    it.pm2 ? ['Second colour', `<span class="row"><span class="swatch" style="width:20px;height:20px;border-radius:6px;background:${it.colour2}"></span>${esc(it.pm2.label)}</span>`] : null,
+    hasFit(it) && it.fit ? ['Fit', FITS[it.fit]] : null,
+    it.fabric ? ['Fabric', cap(it.fabric)] : null,
     hasLength(it) ? ['Length', LENGTH_LABEL[it.length]] : null,
     hasSleeves(it) ? ['Sleeves', cap(it.sleeves)] : null,
     ['Dressiness', DRESSY[it.dressy]],
@@ -159,15 +163,21 @@ function drawForm() {
     ${img ? '<div class="hint" style="text-align:center">Tap the photo on the fabric to pick the exact colour.</div>' : ''}</div>`);
   sec.push(`<div class="field"><span class="lab">Type</span>${chipGroup('type', TYPES.map(t => [t.id, t.label]), d.type)}</div>`);
   sec.push(`<div class="field"><span class="lab">Style</span>${chipGroup('style', Object.keys(STYLES[d.type]).map(s => [s, cap(s)]), d.style)}</div>`);
+  const second = f.pick === 'second', cur = second ? (d.colour2 || '') : d.colour;
+  const pm2 = d.pm2;
   sec.push(`<div class="field"><span class="lab">Colour</span>
     <div class="colourrow"><span class="swatch" style="background:${d.colour}"></span><div><b>${esc(pm.label)}</b> <span class="tag ${STATUS_CLASS[pm.status]}">${STATUS_LABEL[pm.status]}</span>${pm.note ? `<div class="small muted">${esc(pm.note)}</div>` : ''}</div></div>
-    <div class="hint">Or choose the closest colour:</div>
-    <div class="palette">${PALETTE.map(p => `<button type="button" title="${p.name}" style="background:${p.hex}" class="${d.colour === p.hex ? 'on' : ''}" data-act="f" data-field="colour" data-val="${p.hex}"></button>`).join('')}</div>
+    ${pm2 ? `<div class="colourrow" style="margin-top:8px"><span class="swatch" style="background:${d.colour2}"></span><div>Second colour: <b>${esc(pm2.label)}</b> <span class="tag ${STATUS_CLASS[pm2.status]}">${STATUS_LABEL[pm2.status]}</span> <button type="button" class="btn small ghost" data-act="f" data-field="colour2" data-val="">Remove</button></div></div>` : ''}
+    <div style="margin-top:10px">${chipGroup('pick', [['main', 'Setting: main colour'], ['second', 'Setting: second colour']], second ? 'second' : 'main')}</div>
+    <div class="hint">${second ? 'For prints and two-tone pieces: tap the photo on the second colour, or choose it below. It lets the app repeat that colour elsewhere in the outfit.' : 'Tap the photo or choose the closest colour:'}</div>
+    <div class="palette">${PALETTE.map(p => `<button type="button" title="${p.name}" style="background:${p.hex}" class="${cur === p.hex ? 'on' : ''}" data-act="f" data-field="colour" data-val="${p.hex}"></button>`).join('')}</div>
     <div class="hint">Other colours (outside your palette):</div>
-    <div class="palette">${OTHER_COLOURS.map(([n, hx]) => `<button type="button" title="${n}" style="background:${hx}" class="${d.colour === hx ? 'on' : ''}" data-act="f" data-field="colour" data-val="${hx}"></button>`).join('')}</div>
-    <div class="row" style="margin-top:8px"><label class="small muted">Exact colour <input type="color" id="colourIn" value="${d.colour}" style="vertical-align:middle;width:44px;height:30px;border:0;background:none"></label></div></div>`);
+    <div class="palette">${OTHER_COLOURS.map(([n, hx]) => `<button type="button" title="${n}" style="background:${hx}" class="${cur === hx ? 'on' : ''}" data-act="f" data-field="colour" data-val="${hx}"></button>`).join('')}</div>
+    <div class="row" style="margin-top:8px"><label class="small muted">Exact colour <input type="color" id="colourIn" value="${cur || '#9EA4AC'}" style="vertical-align:middle;width:44px;height:30px;border:0;background:none"></label></div></div>`);
   if (hasLength(d)) sec.push(`<div class="field"><span class="lab">Length</span>${chipGroup('length', lens.map(l => [l, LENGTH_LABEL[l]]), d.length)}${d.length === 'mini' ? '<div class="hint">Mini lengths are never suggested for the office.</div>' : ''}</div>`);
   if (hasSleeves(d)) sec.push(`<div class="field"><span class="lab">Sleeves</span>${chipGroup('sleeves', SLEEVES.map(s => [s, cap(s)]), d.sleeves)}</div>`);
+  if (hasFit(d)) sec.push(`<div class="field"><span class="lab">Fit</span>${chipGroup('fit', Object.entries(FITS), d.fit)}<div class="hint">Used to balance proportions, e.g. a loose top with a neater bottom.</div></div>`);
+  if (fabricsFor(d).length) sec.push(`<div class="field"><span class="lab">Fabric</span>${chipGroup('fabric', [['', 'Not sure'], ...fabricsFor(d).map(x => [x, cap(x)])], d.fabric || '')}<div class="hint">Used for texture pairing (e.g. knit with silk), never to limit the season.</div></div>`);
   sec.push(`<div class="field"><span class="lab">Pattern</span>${chipGroup('pattern', Object.entries(PATTERN), d.pattern)}</div>`);
   sec.push(`<div class="field"><span class="lab">How dressy</span>${chipGroup('dressy', Object.entries(DRESSY), d.dressy)}</div>`);
   if (!['shoes', 'belt', 'bag', 'acc'].includes(d.type)) sec.push(`<div class="field"><span class="lab">Warmth</span>${chipGroup('warmth', Object.entries(WARMTH), d.warmth)}</div>`);
@@ -207,7 +217,7 @@ async function pickFromPhoto(ev) {
   const x = c.getContext('2d', { willReadFrequently: true }), sx = Math.round(px * c.width), sy = Math.round(py * c.height), R = 4;
   const dd = x.getImageData(Math.max(0, sx - R), Math.max(0, sy - R), R * 2, R * 2).data;
   let rr = 0, gg = 0, bb = 0, n = 0; for (let i = 0; i < dd.length; i += 4) { rr += dd[i]; gg += dd[i + 1]; bb += dd[i + 2]; n++; }
-  S.form.d.colour = rgbToHex(rr / n, gg / n, bb / n);
+  const hex = rgbToHex(rr / n, gg / n, bb / n); if (S.form.pick === 'second') S.form.d.colour2 = hex; else S.form.d.colour = hex;
   S.form.cross = [((ev.clientX - r.left) / r.width * 100).toFixed(1), ((ev.clientY - r.top) / r.height * 100).toFixed(1)];
   drawForm();
 }
@@ -218,7 +228,10 @@ function setField(field, val) {
   else if (field === 'occ') { d._occTouched = true; d.occ = d.occ.includes(val) ? d.occ.filter(x => x !== val) : [...d.occ, val]; }
   else if (field === 'dressy' || field === 'warmth') { d[field] = +val; if (!d._occTouched) d.occ = defaultOcc(d); }
   else if (field === 'length') { d.length = val; if (!d._occTouched) d.occ = defaultOcc(d); else if (val === 'mini') d.occ = d.occ.filter(o => o !== 'office'); }
-  else if (field === 'colour') { d.colour = val; S.form.cross = null; }
+  else if (field === 'colour') { if (S.form.pick === 'second') d.colour2 = val; else d.colour = val; S.form.cross = null; }
+  else if (field === 'colour2') { d.colour2 = val || null; S.form.pick = 'main'; }
+  else if (field === 'pick') { S.form.pick = val; }
+  else if (field === 'fabric') { d.fabric = val || null; if (d.type === 'shoes' && val === 'suede') d.rainOK = false; if (d.type === 'top' && ['chiffon / sheer', 'lace'].includes(val) && d.needsUnder === 'never') d.needsUnder = 'sometimes'; }
   else d[field] = val;
   drawForm();
 }
@@ -226,7 +239,7 @@ async function saveItem(more) {
   const f = S.form, d = f.d;
   d.name = ($('#nameIn')?.value || '').trim();
   delete d._occTouched; prepItem(d);
-  const clean = { ...d }; delete clean.pm;
+  const clean = { ...d }; delete clean.pm; delete clean.pm2;
   await DB.putItem(clean);
   const i = S.items.findIndex(x => x.id === d.id); if (i >= 0) S.items[i] = d; else S.items.push(d);
   dropURL(d.id); if (f.previewURL) URL.revokeObjectURL(f.previewURL);
@@ -278,6 +291,26 @@ function openWx() {
     <div class="sheet-foot"><button class="btn" data-act="wx-reset">Use forecast</button><button class="btn primary" data-close>Done</button></div>`);
 }
 
+/* ============ "not for me" ============ */
+function openNope(lookIdx) {
+  const o = S.viewLooks[lookIdx].o;
+  const core = ['under', 'top', 'bottom', 'dress', 'jumpsuit', 'layer', 'shoes', 'belt'].filter(k => o[k]).map(k => o[k]);
+  const pairs = [];
+  for (let i = 0; i < core.length; i++) for (let j = i + 1; j < core.length; j++) pairs.push([core[i], core[j]]);
+  S.nope = { lookIdx, pairs, all: core };
+  const thumb = p => `<img src="${photoURL(p)}" alt="" style="width:40px;height:40px;border-radius:8px;object-fit:cover">`;
+  openSheet(`${sheetHead('What didn\'t work?')}
+    <p class="muted small">Choose what to rule out. The app won't suggest it again (you can undo this in Settings).</p>
+    <button class="card" style="width:100%;text-align:left;border:0;display:flex;gap:10px;align-items:center" data-act="block" data-k="all"><b>This whole outfit</b></button>
+    <div class="section-label">Or just a pairing</div>
+    ${pairs.map(([a, b], k) => `<button class="card" style="width:100%;text-align:left;border:0;display:flex;gap:10px;align-items:center;margin:8px 0" data-act="block" data-k="${k}">${thumb(a)}${thumb(b)}<span class="small">${esc(cap(itemName(a)))} <b>with</b> ${esc(itemName(b))}</span></button>`).join('')}`);
+}
+async function addBlock(k) {
+  const n = S.nope, items = k === 'all' ? n.all : n.pairs[+k];
+  S.blocked.push({ id: uid(), ids: items.map(p => p.id), label: k === 'all' ? 'Outfit: ' + items.map(itemName).join(', ') : `${cap(itemName(items[0]))} with ${itemName(items[1])}` });
+  await saveKV('blocked'); invalidate(); closeSheet(); render(); toast('Got it: you won\'t see that again');
+}
+
 /* ============ SAVED ============ */
 function renderSaved() {
   setTop('Saved looks');
@@ -315,6 +348,7 @@ function renderSettings() {
     <div class="field"><span class="lab">Avoid repeating main pieces for</span>${chipGroup('repeatDays', [[0, 'Off'], [2, '2 days'], [4, '4 days'], [7, 'A week']], st.repeatDays)}</div>
     <p class="small muted">Office: smart-casual, no minis or shorts. Church: dressier pieces first. Free days (Saturdays): Relaxed, Out & about and Dressed up.</p>
   </div>
+  <div class="card"><h3>Ruled out</h3>${S.blocked.length ? S.blocked.map(b => `<div class="toggle"><span class="small">${esc(b.label)}</span><button class="btn small ghost" data-act="unblock" data-id="${b.id}">Allow again</button></div>`).join('') : '<p class="small muted">Nothing yet. Tap "Not for me…" under an outfit to rule out a pairing you don\'t like.</p>'}</div>
   <div class="card"><h3>Your True Summer palette</h3><p class="small muted">Cool, soft and light-to-medium. Wear these near your face; save black, camel, mustard and orange for bottoms, shoes and bags.</p>
     <div class="palette-view">${PALETTE.map(p => `<div><i style="background:${p.hex}"></i>${p.name}</div>`).join('')}</div></div>
   <div class="card"><h3>Backup</h3><p class="small muted">Your clothes are saved only on this device, inside this app. Make a backup now and then, especially before changing phones.</p>
@@ -340,8 +374,8 @@ async function setLocation(loc) { const field = S.locTarget || 'location'; S.set
 const blobToDataURL = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); });
 async function exportBackup() {
   const items = [];
-  for (const it of S.items) { const c = { ...it }; delete c.pm; if (c.photo instanceof Blob) c.photo = await blobToDataURL(c.photo); items.push(c); }
-  const data = { app: 'true-summer-wardrobe', version: 1, exported: new Date().toISOString(), items, settings: S.settings, saved: S.saved, worn: S.worn };
+  for (const it of S.items) { const c = { ...it }; delete c.pm; delete c.pm2; if (c.photo instanceof Blob) c.photo = await blobToDataURL(c.photo); items.push(c); }
+  const data = { app: 'true-summer-wardrobe', version: 1, exported: new Date().toISOString(), items, settings: S.settings, saved: S.saved, worn: S.worn, blocked: S.blocked };
   const file = new File([JSON.stringify(data)], `wardrobe-backup-${todayStr()}.json`, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], title: 'Wardrobe backup' }); return; } catch (e) { if (e.name === 'AbortError') return; } }
   const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
@@ -352,20 +386,20 @@ async function importBackup(file) {
     const data = JSON.parse(await file.text());
     if (data.app !== 'true-summer-wardrobe') throw new Error();
     for (const it of data.items) { if (typeof it.photo === 'string' && it.photo.startsWith('data:')) it.photo = await (await fetch(it.photo)).blob(); await DB.putItem(it); }
-    S.settings = { ...DEFAULT_SETTINGS, ...data.settings }; S.saved = data.saved || []; S.worn = data.worn || [];
-    await Promise.all(['settings', 'saved', 'worn'].map(saveKV));
+    S.settings = { ...DEFAULT_SETTINGS, ...data.settings }; S.saved = data.saved || []; S.worn = data.worn || []; S.blocked = data.blocked || [];
+    await Promise.all(['settings', 'saved', 'worn', 'blocked'].map(saveKV));
     await loadItems(); invalidate(); toast(`Restored ${data.items.length} items`); render();
   } catch { toast('That file isn\'t a wardrobe backup'); }
 }
 
 /* ============ demo ============ */
 const DEMO = [
-  ['top', 'tee', '#F1EFEA'], ['top', 'blouse', '#C99DA4'], ['top', 'button-up shirt', '#B3C6DE'], ['top', 'knit / jumper', '#3C4A66'], ['top', 'turtleneck', '#9EA4AC'],
-  ['top', 'camisole', '#E8C6CC'], ['top', 'blouse', '#D4A017'], ['top', 'dressy top', '#B3415D'], ['top', 'tee', '#5F9C9E', { pattern: 'subtle' }],
+  ['top', 'tee', '#F1EFEA'], ['top', 'blouse', '#C99DA4', { fabric: 'silk / satin' }], ['top', 'button-up shirt', '#B3C6DE'], ['top', 'knit / jumper', '#3C4A66'], ['top', 'turtleneck', '#9EA4AC'],
+  ['top', 'camisole', '#E8C6CC'], ['top', 'blouse', '#D4A017'], ['top', 'dressy top', '#B3415D'], ['top', 'tee', '#5F9C9E', { pattern: 'subtle', colour2: '#F1EFEA' }],
   ['bottom', 'jeans', '#5C7AA3'], ['bottom', 'tailored trousers', '#1C1C1E'], ['bottom', 'wide-leg trousers', '#9C918C'], ['bottom', 'skirt', '#6E7A86', { pattern: 'subtle' }],
   ['bottom', 'skirt', '#2F3B5A', { length: 'mini' }], ['bottom', 'shorts', '#C9CDD2'],
   ['dress', 'wrap dress', '#B3415D'], ['dress', 'shift dress', '#6A7DAF'], ['dress', 'pinafore dress', '#4A5260'], ['dress', 'slip dress', '#B8A8D2'],
-  ['dress', 'maxi dress', '#94CBCB', { pattern: 'bold' }], ['dress', 'fit & flare dress', '#76304A'],
+  ['dress', 'maxi dress', '#94CBCB', { pattern: 'bold', colour2: '#2F3B5A' }], ['dress', 'fit & flare dress', '#76304A'],
   ['jumpsuit', 'jumpsuit', '#2F3B5A'], ['jumpsuit', 'sleeveless jumpsuit', '#4C9A89'],
   ['outer', 'blazer', '#3C4A66'], ['outer', 'cardigan', '#C99DA4'], ['outer', 'denim jacket', '#5C7AA3'], ['outer', 'trench coat', '#9C918C'], ['outer', 'wool coat', '#C19A6B'], ['outer', 'light cardigan / shrug', '#F1EFEA'],
   ['shoes', 'sneakers', '#F1EFEA'], ['shoes', 'loafers', '#8A6B6B'], ['shoes', 'heels', '#9C918C'], ['shoes', 'ankle boots', '#4A5260'], ['shoes', 'sandals', '#8A6B6B'], ['shoes', 'low / block heels', '#2F3B5A'],
@@ -399,6 +433,9 @@ document.addEventListener('click', async e => {
     case 'wx-reset': delete S.wxOverride[S.date]; await saveKV('wxOverride'); invalidate(); closeSheet(); render(); break;
     case 'piece': openSwap(+D.look, D.slot, +D.ti || 0); break;
     case 'pick-alt': pickAlt(D.id); break;
+    case 'nope': openNope(+D.look); break;
+    case 'block': addBlock(D.k); break;
+    case 'unblock': S.blocked = S.blocked.filter(b => b.id !== D.id); await saveKV('blocked'); invalidate(); render(); break;
     case 'open-item': closeSheet(); itemDetail(D.id); break;
     case 'wear': {
       const L = S.viewLooks[+D.look]; const date = S.date;
@@ -422,7 +459,7 @@ document.addEventListener('click', async e => {
     case 'item': itemDetail(D.id); break;
     case 'edit-item': editItem(D.id); break;
     case 'style-item': S.lock = D.id; S.lockDate = S.date; invalidate(); closeSheet(); S.tab = 'today'; render(); window.scrollTo(0, 0); break;
-    case 'wash-item': { const it = itemById(D.id); it.inWash = !it.inWash; const c = { ...it }; delete c.pm; await DB.putItem(c); invalidate(); closeSheet(); render(); toast(it.inWash ? 'Skipped until it\'s washed' : 'Back in rotation'); break; }
+    case 'wash-item': { const it = itemById(D.id); it.inWash = !it.inWash; const c = { ...it }; delete c.pm; delete c.pm2; await DB.putItem(c); invalidate(); closeSheet(); render(); toast(it.inWash ? 'Skipped until it\'s washed' : 'Back in rotation'); break; }
     case 'del-item': {
       if (delArm !== D.id) { delArm = D.id; el.textContent = 'Tap again to delete'; setTimeout(() => delArm = null, 3000); break; }
       await DB.delItem(D.id); dropURL(D.id); S.items = S.items.filter(i => i.id !== D.id); invalidate(); closeSheet(); render(); toast('Deleted'); break;
@@ -456,8 +493,8 @@ document.addEventListener('click', async e => {
     case 'demo-remove': removeDemo(); break;
     case 'wipe': {
       if (delArm !== 'wipe') { delArm = 'wipe'; el.textContent = 'Tap again: this deletes all clothes and history'; setTimeout(() => delArm = null, 4000); break; }
-      await DB.clearItems(); S.saved = []; S.worn = []; S.dayType = {}; S.wxOverride = {};
-      await Promise.all(['saved', 'worn', 'dayType', 'wxOverride'].map(saveKV)); S.urls.forEach((u, id) => dropURL(id)); await loadItems(); invalidate(); render(); toast('Everything deleted'); break;
+      await DB.clearItems(); S.saved = []; S.worn = []; S.blocked = []; S.dayType = {}; S.wxOverride = {};
+      await Promise.all(['saved', 'worn', 'blocked', 'dayType', 'wxOverride'].map(saveKV)); S.urls.forEach((u, id) => dropURL(id)); await loadItems(); invalidate(); render(); toast('Everything deleted'); break;
     }
   }
 });
@@ -469,7 +506,7 @@ document.addEventListener('change', async e => {
       const f = S.form; if (f.previewURL) URL.revokeObjectURL(f.previewURL);
       f.previewURL = null; f.canvas = canvas; f.cross = null; f.d.photo = blob; f.d.colour = detectColour(canvas); drawForm();
     } catch { toast('Couldn\'t read that photo'); }
-  } else if (t.id === 'colourIn' && S.form) { S.form.d.colour = t.value.toUpperCase(); S.form.cross = null; drawForm(); }
+  } else if (t.id === 'colourIn' && S.form) { if (S.form.pick === 'second') S.form.d.colour2 = t.value.toUpperCase(); else S.form.d.colour = t.value.toUpperCase(); S.form.cross = null; drawForm(); }
   else if (t.id === 'importIn' && t.files[0]) importBackup(t.files[0]);
   else if (t.dataset.tg) {
     if (S.form) { S.form.d[t.dataset.tg] = t.checked; }
@@ -493,7 +530,7 @@ async function init() {
   await DB.open();
   await loadItems();
   S.settings = { ...DEFAULT_SETTINGS, ...(await DB.get('settings') || {}) };
-  for (const k of ['saved', 'worn']) S[k] = (await DB.get(k)) || [];
+  for (const k of ['saved', 'worn', 'blocked']) S[k] = (await DB.get(k)) || [];
   for (const k of ['dayType', 'wxOverride']) S[k] = (await DB.get(k)) || {};
   S.weather = (await DB.get('weather')) || null;
   render();

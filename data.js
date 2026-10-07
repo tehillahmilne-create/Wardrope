@@ -113,6 +113,30 @@ const WARMTH = { 1: 'Light', 2: 'Medium', 3: 'Warm' };
 const PATTERN = { plain: 'Plain', subtle: 'Subtle print', bold: 'Bold print' };
 const UNDER = { never: 'No', sometimes: 'For office, church & cool days', always: 'Always' };
 const SLOT_LABEL = { top: 'Top', bottom: 'Bottom', dress: 'Dress', jumpsuit: 'Jumpsuit', under: 'Under', layer: 'Wear', shoes: 'Shoes', belt: 'Belt', bag: 'Bag', acc: 'Accessory' };
+const FITS = { fitted: 'Fitted', regular: 'Regular', relaxed: 'Relaxed / flowy', oversized: 'Oversized' };
+const hasFit = it => ['top', 'bottom', 'dress', 'jumpsuit', 'outer'].includes(it.type);
+const isLoose = f => f === 'relaxed' || f === 'oversized';
+// Fabrics only affect texture pairing and dressiness, never the season.
+const FABRICS = {
+  clothes: ['cotton', 'linen', 'denim', 'jersey / stretch', 'knit', 'wool', 'silk / satin', 'chiffon / sheer', 'lace', 'velvet', 'corduroy', 'leather / faux leather', 'sequin / sparkle', 'polyester / crepe'],
+  shoes: ['leather', 'suede', 'patent', 'canvas', 'synthetic'],
+  belt: ['leather', 'suede', 'fabric', 'metal / chain'],
+  bag: ['leather', 'suede', 'patent', 'canvas / fabric', 'straw'],
+};
+const fabricsFor = it => it.type === 'acc' ? [] : FABRICS[it.type] || FABRICS.clothes;
+const STATEMENT_FABRIC = ['lace', 'velvet', 'leather / faux leather', 'sequin / sparkle'];
+const STYLE_FIT = {
+  'knit / jumper': 'relaxed', 'turtleneck': 'fitted', 'bodysuit': 'fitted', 'tank / vest': 'fitted', 'sweatshirt / hoodie': 'oversized',
+  'wide-leg trousers': 'relaxed', 'linen trousers': 'relaxed', 'culottes': 'relaxed', 'leggings / joggers': 'fitted',
+  'shirt dress': 'relaxed', 'maxi dress': 'relaxed', 'sundress': 'relaxed', 'bodycon dress': 'fitted', 'fit & flare dress': 'fitted', 'knit dress': 'relaxed',
+  'dungarees': 'relaxed', 'playsuit': 'relaxed', 'cardigan': 'relaxed', 'kimono': 'oversized', 'puffer': 'relaxed', 'shacket': 'oversized',
+};
+const STYLE_FABRIC = {
+  'tee': 'cotton', 'button-up shirt': 'cotton', 'knit / jumper': 'knit', 'turtleneck': 'jersey / stretch', 'camisole': 'silk / satin', 'sheer blouse': 'chiffon / sheer', 'sweatshirt / hoodie': 'jersey / stretch',
+  'jeans': 'denim', 'linen trousers': 'linen', 'leggings / joggers': 'jersey / stretch', 'slip dress': 'silk / satin', 'knit dress': 'knit', 'bodycon dress': 'jersey / stretch', 'dungarees': 'denim',
+  'denim jacket': 'denim', 'leather jacket': 'leather / faux leather', 'trench coat': 'cotton', 'wool coat': 'wool', 'cardigan': 'knit', 'light cardigan / shrug': 'knit',
+  'sneakers': 'canvas', 'loafers': 'leather', 'ankle boots': 'leather', 'knee boots': 'leather', 'heels': 'leather', 'thin belt': 'leather', 'wide belt': 'leather', 'chain belt': 'metal / chain',
+};
 const hasLength = it => ['dress', 'jumpsuit'].includes(it.type) || (it.type === 'bottom' && ['skirt', 'shorts', 'culottes'].includes(it.style));
 const hasSleeves = it => ['top', 'dress', 'jumpsuit'].includes(it.type);
 
@@ -272,7 +296,7 @@ const DEFAULT_SETTINGS = {
 const S = {
   items: [], urls: new Map(), settings: { ...DEFAULT_SETTINGS },
   saved: [], worn: [], dayType: {}, wxOverride: {}, weather: null,
-  tab: 'today', date: todayStr(), seeds: {}, lock: null, filter: 'all', cache: new Map(),
+  tab: 'today', date: todayStr(), seeds: {}, blocked: [], lock: null, filter: 'all', cache: new Map(),
 };
 const itemById = id => S.items.find(i => i.id === id);
 function photoURL(it) {
@@ -337,6 +361,8 @@ function applyStyle(it, style) {
   it.dressy = st.d || 2; it.warmth = st.w || 2;
   it.sleeves = hasSleeves(it) ? (st.sleeves || 'short') : null;
   it.length = hasLength(it) ? (st.length || 'knee') : (it.type === 'bottom' || it.type === 'jumpsuit' ? 'full' : null);
+  it.fit = hasFit(it) ? (STYLE_FIT[style] || 'regular') : null;
+  it.fabric = STYLE_FABRIC[style] || null;
   it.canUnder = !!st.canUnder;
   it.needsUnder = st.needsUnder || 'never';
   it.belt = !!st.belt;
@@ -352,4 +378,4 @@ function defaultOcc(it) {
   return o;
 }
 function itemName(it) { return it.name?.trim() || `${it.pm?.label || ''} ${it.style}`.trim(); }
-function prepItem(it) { it.pm = paletteMatch(it.colour, it.style); return it; }
+function prepItem(it) { it.pm = paletteMatch(it.colour, it.style); it.pm2 = it.colour2 ? paletteMatch(it.colour2) : null; return it; }
