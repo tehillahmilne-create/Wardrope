@@ -44,7 +44,7 @@ function renderToday() {
   const strip = Array.from({ length: 7 }, (_, n) => { const d = addDays(todayStr(), n), x = parseDate(d); return `<button data-act="date" data-date="${d}" class="${d === date ? 'on' : ''}">${n === 0 ? 'Today' : DOW[x.getDay()]}<b>${x.getDate()}</b></button>`; }).join('');
   let h = `<div class="datestrip">${strip}</div>`;
   h += `<div class="card">
-    <div class="spread"><div><div class="muted small">${fmtDate(date)}</div></div><button class="tag daytype" data-act="daytype">${DAYTYPE_LABEL[type]} ▾</button></div>
+    <div class="spread"><div><div class="muted small">${fmtDate(date)}${wx.place ? ` · ${esc(wx.place.split(',')[0])}` : ''}</div></div><button class="tag daytype" data-act="daytype">${DAYTYPE_LABEL[type]} ▾</button></div>
     <div class="spread" style="margin-top:10px">
       <div class="wx"><div class="big">${wx.source === 'none' ? '🌡️' : WX_ICON(wx.code)}</div>
         <div>${wx.source === 'forecast' ? `<div class="temps">${t0(wx.max)} <span>/ ${t0(wx.min)}</span></div><div class="muted small">${WX_TEXT(wx.code)} · feels ${t0(wx.amax)} · rain ${Math.round(wx.rain)}%${wx.windy ? ' · windy' : ''}</div>`
@@ -297,12 +297,14 @@ function renderSaved() {
 function renderSettings() {
   setTop('Settings');
   const st = S.settings;
-  const wxAge = S.weather ? Math.round((Date.now() - S.weather.fetched) / 60000) : null;
+  const wxAge = weatherAge();
   view.innerHTML = `
-  <div class="card"><h3>Location</h3>
-    <p class="small muted">${st.location ? `Weather for <b>${esc(st.location.name)}</b>${wxAge != null ? ` · updated ${wxAge < 60 ? wxAge + ' min' : Math.round(wxAge / 60) + ' h'} ago` : ''}` : 'Not set yet.'}</p>
-    <div class="row"><button class="btn" data-act="geo">Use my location</button>${st.location ? '<button class="btn ghost" data-act="refresh-wx">Refresh weather</button>' : ''}</div>
-    <div class="field"><input type="search" id="placeQ" placeholder="Or search a town, e.g. Johannesburg"></div><div id="placeRes"></div>
+  <div class="card"><h3>Locations</h3>
+    <p class="small muted">Weather is checked where you'll actually be each day.${wxAge != null ? ` Updated ${wxAge < 60 ? wxAge + ' min' : Math.round(wxAge / 60) + ' h'} ago.` : ''}</p>
+    <div class="toggle"><span><span class="t">Home &amp; free days</span><br><span class="d">${st.location ? esc(st.location.name) : 'Not set yet'}</span></span><span class="row"><button class="btn small" data-act="loc-pick" data-field="location">${st.location ? 'Change' : 'Set'}</button></span></div>
+    <div class="toggle"><span><span class="t">Office days</span><br><span class="d">${st.officeLocation ? esc(st.officeLocation.name) : 'Same as home'}</span></span><span class="row">${st.officeLocation ? '<button class="btn small ghost" data-act="loc-clear" data-field="officeLocation">Use home</button>' : ''}<button class="btn small" data-act="loc-pick" data-field="officeLocation">${st.officeLocation ? 'Change' : 'Set'}</button></span></div>
+    <div class="toggle"><span><span class="t">Church</span><br><span class="d">${st.churchLocation ? esc(st.churchLocation.name) : 'Same as home'}</span></span><span class="row">${st.churchLocation ? '<button class="btn small ghost" data-act="loc-clear" data-field="churchLocation">Use home</button>' : ''}<button class="btn small" data-act="loc-pick" data-field="churchLocation">${st.churchLocation ? 'Change' : 'Set'}</button></span></div>
+    ${st.location ? '<div class="row" style="margin-top:10px"><button class="btn ghost small" data-act="refresh-wx">Refresh weather</button></div>' : ''}
   </div>
   <div class="card"><h3>Day rules</h3>
     <div class="field"><span class="lab">Office days</span>${chipGroup('officeDays', [1, 2, 3, 4, 5, 6, 0].map(n => [n, DOW[n]]), st.officeDays.map(String), true)}</div>
@@ -316,14 +318,23 @@ function renderSettings() {
   <div class="card"><h3>Your True Summer palette</h3><p class="small muted">Cool, soft and light-to-medium. Wear these near your face; save black, camel, mustard and orange for bottoms, shoes and bags.</p>
     <div class="palette-view">${PALETTE.map(p => `<div><i style="background:${p.hex}"></i>${p.name}</div>`).join('')}</div></div>
   <div class="card"><h3>Backup</h3><p class="small muted">Your clothes are saved only on this device, inside this app. Make a backup now and then, especially before changing phones.</p>
-    <div class="row"><button class="btn" data-act="export">Save a backup</button><label class="btn ghost">Restore backup<input type="file" accept=".json,application/json" id="importIn" hidden></label></div></div>
+    <div class="row"><button class="btn" data-act="export">Save a backup</button><label class="btn ghost">Restore backup<input type="file" id="importIn" hidden></label></div></div>
   <div class="card"><h3>Demo clothes</h3><p class="small muted">Drawn sample items so you can see how the app works. Remove them when you've added your own.</p>
     <div class="row"><button class="btn" data-act="demo-load">Add demo clothes</button><button class="btn ghost" data-act="demo-remove">Remove demo clothes</button></div></div>
   <div class="card"><h3>Start over</h3><div class="row"><button class="btn ghost danger" data-act="wipe">Delete everything</button></div></div>
   <p class="small muted" style="text-align:center">Weather by Open-Meteo.com</p>`;
 }
 async function saveSettings() { await saveKV('settings'); invalidate(); }
-async function setLocation(loc) { S.settings.location = loc; await saveSettings(); S.weather = null; try { await fetchWeather(true); toast('Weather loaded for ' + loc.name); } catch { toast('Couldn\'t load the weather. Check your connection.'); } render(); }
+function openLocPicker(field) {
+  S.locTarget = field;
+  const title = { location: 'Home & free days', officeLocation: 'Office location', churchLocation: 'Church location' }[field];
+  openSheet(`${sheetHead(title)}
+    <p class="muted small">${field === 'location' ? 'Used for Saturdays and any day without its own location.' : 'Search for the suburb or town, e.g. Sandton or Centurion.'}</p>
+    <div class="row"><button class="btn" data-act="geo">Use where I am now</button></div>
+    <div class="field"><input type="search" id="placeQ" placeholder="Search a suburb or town"></div><div id="placeRes"></div>`);
+  setTimeout(() => $('#placeQ')?.focus(), 50);
+}
+async function setLocation(loc) { const field = S.locTarget || 'location'; S.settings[field] = loc; if (!S.settings.location) S.settings.location = loc; await saveSettings(); closeSheet(); try { await fetchWeather(true); toast('Weather loaded for ' + loc.name); } catch { toast('Couldn\'t load the weather. Check your connection.'); } render(); }
 
 /* ============ backup ============ */
 const blobToDataURL = b => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); });
@@ -434,9 +445,11 @@ document.addEventListener('click', async e => {
     case 'geo':
       if (!navigator.geolocation) { toast('Location isn\'t available here, so search instead'); break; }
       toast('Finding you…');
-      navigator.geolocation.getCurrentPosition(p => setLocation({ name: 'My location', lat: +p.coords.latitude.toFixed(3), lon: +p.coords.longitude.toFixed(3) }), () => toast('Location blocked, so search for your town instead'), { timeout: 15000 });
+      navigator.geolocation.getCurrentPosition(p => setLocation({ name: S.locTarget === 'officeLocation' ? 'Office (my location)' : S.locTarget === 'churchLocation' ? 'Church (my location)' : 'Home (my location)', lat: +p.coords.latitude.toFixed(3), lon: +p.coords.longitude.toFixed(3) }), () => toast('Location blocked, so search for your town instead'), { timeout: 15000 });
       break;
     case 'place': setLocation({ name: D.name, lat: +D.lat, lon: +D.lon }); break;
+    case 'loc-pick': openLocPicker(D.field); break;
+    case 'loc-clear': S.settings[D.field] = null; await saveSettings(); render(); toast('Using your home location'); break;
     case 'refresh-wx': try { await fetchWeather(true); toast('Weather updated'); render(); } catch { toast('Couldn\'t reach the weather service'); } break;
     case 'export': exportBackup(); break;
     case 'demo-load': loadDemo(); break;

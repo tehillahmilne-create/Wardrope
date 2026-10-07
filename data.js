@@ -259,7 +259,9 @@ const DB = {
 
 /* ============ app state ============ */
 const DEFAULT_SETTINGS = {
-  location: null,            // {name, lat, lon}
+  location: null,            // home / free days {name, lat, lon}
+  officeLocation: null,      // office days (null = same as home)
+  churchLocation: null,      // church days (null = same as home)
   officeDays: [1, 2, 3, 4, 5],
   churchDay: 0,
   coverOffice: false,        // sleeveless needs cover at the office

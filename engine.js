@@ -7,10 +7,14 @@ const BAND_LABEL = { hot: 'Hot', warm: 'Warm', mild: 'Mild', cool: 'Cool', cold:
 const BAND_T = { hot: 1, warm: 1.4, mild: 2, cool: 2.6, cold: 3.1 };
 const bandOf = t => t >= 29 ? 'hot' : t >= 23 ? 'warm' : t >= 17 ? 'mild' : t >= 11 ? 'cool' : 'cold';
 
-async function fetchWeather(force) {
-  const loc = S.settings.location; if (!loc) return null;
-  const key = `${loc.lat},${loc.lon}`;
-  if (!force && S.weather && S.weather.key === key && Date.now() - S.weather.fetched < 3 * 3600e3) return S.weather;
+// Each kind of day can have its own place: home (free days), office, church.
+const LOC_FIELD = { free: 'location', office: 'officeLocation', church: 'churchLocation' };
+const locKey = loc => `${loc.lat},${loc.lon}`;
+function locFor(type) { const st = S.settings; return (type === 'office' && st.officeLocation) || (type === 'church' && st.churchLocation) || st.location || null; }
+function allLocations() { const m = new Map(); for (const k of ['location', 'officeLocation', 'churchLocation']) { const l = S.settings[k]; if (l) m.set(locKey(l), l); } return [...m.values()]; }
+async function fetchOne(loc, force) {
+  const key = locKey(loc), have = S.weather.byKey[key];
+  if (!force && have && Date.now() - have.fetched < 3 * 3600e3) return;
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
     `&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=auto&forecast_days=8`;
   const r = await fetch(url); if (!r.ok) throw new Error('Weather service unavailable');
@@ -23,17 +27,23 @@ async function fetchWeather(force) {
       rain: prob ?? (mm > 1 ? 60 : 0), mm, wind: D.wind_speed_10m_max?.[i] ?? 0,
     };
   });
-  S.weather = { key, fetched: Date.now(), days };
+  S.weather.byKey[key] = { fetched: Date.now(), days };
+}
+async function fetchWeather(force) {
+  if (!S.weather || !S.weather.byKey) S.weather = { byKey: S.weather?.key ? { [S.weather.key]: { fetched: S.weather.fetched, days: S.weather.days } } : {} };
+  const locs = allLocations(); if (!locs.length) return null;
+  await Promise.all(locs.map(l => fetchOne(l, force)));
   await saveKV('weather'); invalidate();
   return S.weather;
 }
+function weatherAge() { const f = allLocations().map(l => S.weather?.byKey?.[locKey(l)]?.fetched).filter(Boolean); return f.length ? Math.round((Date.now() - Math.min(...f)) / 60000) : null; }
 async function searchPlaces(q) {
   const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`);
   const j = await r.json();
   return (j.results || []).map(p => ({ name: [p.name, p.admin1, p.country_code].filter(Boolean).join(', '), lat: +p.latitude.toFixed(3), lon: +p.longitude.toFixed(3) }));
 }
 function dayWeather(date) {
-  const ov = S.wxOverride[date], f = S.weather?.days?.[date];
+  const loc = locFor(dayType(date)), ov = S.wxOverride[date], f = loc ? S.weather?.byKey?.[locKey(loc)]?.days?.[date] : null;
   let wx;
   if (ov) {
     const t = { hot: 31, warm: 25, mild: 19, cool: 13, cold: 7 }[ov.band];
@@ -43,6 +53,7 @@ function dayWeather(date) {
   wx.wet = wx.rain >= 40;
   wx.chill = wx.amin != null && (wx.amin <= 13 || (wx.amax - wx.amin >= 11 && wx.amin < 17));
   wx.windy = (wx.wind || 0) >= 35;
+  wx.place = loc?.name || '';
   return wx;
 }
 
